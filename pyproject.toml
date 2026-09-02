@@ -7,7 +7,10 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Maxime" }]
-dependencies = ["pydantic>=2.9", "rich>=13"]
+dependencies = ["pydantic>=2.9", "pyyaml>=6", "rich>=13", "typer>=0.12"]
+
+[project.scripts]
+decidable = "decidable.cli:app"
 
 [project.optional-dependencies]
 # The tools the shipped Python verifiers shell out to. Kept optional so the core
@@ -27,7 +30,7 @@ build-backend = "hatchling.build"
 packages = ["src/decidable"]
 
 [dependency-groups]
-dev = ["mypy>=1.11", "pytest>=8.3", "ruff>=0.6"]
+dev = ["mypy>=1.11", "pytest>=8.3", "ruff>=0.6", "types-pyyaml>=6"]
 
 [tool.mypy]
 strict = true
