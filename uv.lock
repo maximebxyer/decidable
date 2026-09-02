@@ -96,6 +96,13 @@ dependencies = [
     { name = "pydantic" },
 ]
 
+[package.optional-dependencies]
+python = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -104,7 +111,13 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.9" }]
+requires-dist = [
+    { name = "mypy", marker = "extra == 'python'", specifier = ">=1.11" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pytest", marker = "extra == 'python'", specifier = ">=8.3" },
+    { name = "ruff", marker = "extra == 'python'", specifier = ">=0.6" },
+]
+provides-extras = ["python"]
 
 [package.metadata.requires-dev]
 dev = [

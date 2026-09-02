@@ -9,6 +9,11 @@ license-files = ["LICENSE"]
 authors = [{ name = "Maxime" }]
 dependencies = ["pydantic>=2.9"]
 
+[project.optional-dependencies]
+# The tools the shipped Python verifiers shell out to. Kept optional so the core
+# library stays pydantic-only; a missing tool is an honest ERROR, not a crash.
+python = ["mypy>=1.11", "pytest>=8.3", "ruff>=0.6"]
+
 [project.urls]
 Homepage = "https://github.com/maximebxyer/decidable"
 Repository = "https://github.com/maximebxyer/decidable"
