@@ -26,22 +26,24 @@ verifiably correct, and if not, exactly where did it break?*
 
 ## Status
 
-**v0.1, early.** One of six milestones is built. This table is the honest picture, and
+**v0.1, early.** Two of six milestones are built. This table is the honest picture, and
 the README describes the design in full so contributors can see where the work is — not
 because the unbuilt parts exist.
 
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Core models and the Verifier protocol | **shipped** |
-| 2 | Python verifier stack (`ast.parse`, `mypy`/`ruff`, subprocess, `pytest`) | not built |
+| 2 | Python verifier stack (`ast.parse`, `mypy`/`ruff`, subprocess, `pytest`) | **shipped** |
 | 3 | Runner with caching and reproducibility metadata | not built |
 | 4 | Report with failure breakdown by stage | not built |
 | 5 | CLI and YAML suite format | not built |
 | 6 | Worked example and one-command reproduction | not built |
 
-**There is no `decidable` CLI yet**, and no Python verifiers ship with the package. What
-exists today is the library: the core types, and a verifier stack you can compose your own
-verifiers into. The [Quickstart](#quickstart) below runs against that, today.
+**There is no `decidable` CLI yet**, and nothing yet runs a suite against an agent or
+renders a report. What exists today is the library: the core types, the verifier stack,
+and [five working Python verifiers](#the-python-verifiers). Composing them and running
+them against an artifact by hand is a few lines, and the
+[Quickstart](#quickstart) below is executed by the test suite.
 
 ## Core concepts
 
@@ -145,44 +147,120 @@ clone it:
 ```
 git clone https://github.com/maximebxyer/decidable
 cd decidable
-uv sync
+uv sync --extra python
 ```
+
+The core library depends on `pydantic` and nothing else. The `python` extra adds `mypy`,
+`ruff` and `pytest` — the tools the shipped Python verifiers shell out to. Without it the
+core types and `VerifierStack` work fine, and a verifier whose tool is missing returns
+`ERROR` rather than crashing.
 
 ## Quickstart
 
-Two verifiers, composed into a stack, run against a string artifact. This is the whole
-library as it exists today — and `tests/test_readme.py` executes this block, assertions
-included, so it is true or the test suite fails.
+The full four-stage stack, run against two artifacts. `tests/test_readme.py` executes this
+block, assertions included, so it is true or the test suite fails.
+
+```python
+from decidable import Stage, Status
+from decidable.verifiers import VerifierStack
+from decidable.verifiers.python import (
+    ExecuteVerifier,
+    MypyVerifier,
+    ParseVerifier,
+    PytestVerifier,
+    RuffVerifier,
+)
+
+PROPERTIES = """
+from solution import fizzbuzz
+
+
+def test_multiples_of_three():
+    assert fizzbuzz(3) == "fizz"
+
+
+def test_plain_numbers():
+    assert fizzbuzz(1) == "1"
+"""
+
+stack = VerifierStack(
+    [
+        ParseVerifier(),
+        MypyVerifier(),
+        RuffVerifier(),
+        ExecuteVerifier(timeout_s=10.0),
+        PytestVerifier(PROPERTIES),
+    ]
+)
+
+# Type-checks and runs, but gets the answer wrong: it survives to the last stage.
+wrong = stack.run("def fizzbuzz(n: int) -> str:\n    return str(n)\n")
+
+assert wrong.status is Status.FAIL
+assert [v.verifier.name for v in wrong.verdicts] == [
+    "python_parse",
+    "mypy",
+    "ruff",
+    "python_execute",
+    "pytest",
+]
+assert wrong.verdicts[-1].verifier.stage is Stage.BEHAVIOURAL
+assert wrong.skipped == ()
+
+# Fails to type-check, so the three more expensive stages are never attempted.
+untyped = stack.run("def fizzbuzz(n: int) -> str:\n    return n\n")
+
+assert untyped.status is Status.FAIL
+assert untyped.verdicts[-1].verifier.name == "mypy"
+assert untyped.verdicts[-1].evidence.data["codes"] == ("return-value",)
+assert [ref.name for ref in untyped.skipped] == ["ruff", "python_execute", "pytest"]
+```
+
+Two agents, both "50%". The verdict chain says one is nearly right and the other does not
+type-check.
+
+## The Python verifiers
+
+Importable from `decidable.verifiers.python`. Every one of them decides by parsing,
+type-checking, linting or running the artifact. None of them call a model.
+
+| Verifier | Stage | Decides with | Evidence it records |
+|----------|-------|--------------|---------------------|
+| `ParseVerifier()` | `SYNTACTIC` | `ast.parse` | line, column, and the offending source line with a caret |
+| `MypyVerifier(strict=True, timeout_s=120.0)` | `STATIC` | `mypy --output=json` | error count, distinct error codes, mypy version |
+| `RuffVerifier(timeout_s=60.0)` | `STATIC` | `ruff check --isolated` | violation count, distinct rule codes, ruff version |
+| `ExecuteVerifier(timeout_s=10.0)` | `DYNAMIC` | running the artifact | exit code, stderr, whether it timed out |
+| `PytestVerifier(tests, module_name="solution", timeout_s=60.0)` | `BEHAVIOURAL` | `pytest` | the failing assertion, pytest version |
+
+`PytestVerifier` takes its property tests at construction; they import the artifact by
+module name (`from solution import fizzbuzz`). That is what keeps `verify` a function of
+the artifact alone.
+
+The distinct-codes field is the one that pays off across a suite: it turns "this agent
+fails type-checking" into "this agent returns the wrong type in 30% of tasks".
+
+Two details worth knowing, both consequences of `ERROR` not being `FAIL`:
+
+- **A missing tool is `ERROR`**, with a summary naming the extra to install. `mypy` not
+  being installed says nothing about the agent.
+- **`pytest` collecting no tests is `ERROR`**, not `PASS`. An empty test run decides
+  nothing, and reporting it as success would be the most flattering lie the harness could
+  tell. But an artifact the tests cannot *import* is a `FAIL` — that one is the agent's
+  doing.
+
+`mypy` and `ruff` run against a generated empty config, so the configuration of whatever
+project `decidable` happens to be running inside can never change a verdict.
+
+## Writing your own verifier
+
+Anything with `name`, `stage` and `verify` satisfies the protocol. Nothing here is
+Python-specific except the verifiers above.
 
 ```python
 import ast
 
 from decidable import Evidence, Stage, Status, Verdict, VerifierRef
 from decidable.verifiers import VerifierStack
-
-
-class ParsesAsPython:
-    name = "ast_parse"
-    stage = Stage.SYNTACTIC
-
-    def verify(self, artifact: str) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
-        try:
-            ast.parse(artifact)
-        except SyntaxError as exc:
-            return Verdict(
-                status=Status.FAIL,
-                verifier=me,
-                evidence=Evidence(
-                    summary=f"does not parse: {exc.msg}",
-                    data={"line": exc.lineno, "offset": exc.offset},
-                ),
-            )
-        return Verdict(
-            status=Status.PASS,
-            verifier=me,
-            evidence=Evidence(summary="parses as Python"),
-        )
 
 
 class AnnotatesReturnTypes:
@@ -212,23 +290,10 @@ class AnnotatesReturnTypes:
         )
 
 
-stack = VerifierStack([ParsesAsPython(), AnnotatesReturnTypes()])
-
-# It parses, so stage 1 passes and stage 2 runs and fails.
-result = stack.run("def fizzbuzz(n):\n    return str(n)\n")
+result = VerifierStack([AnnotatesReturnTypes()]).run("def fizzbuzz(n):\n    return n\n")
 
 assert result.status is Status.FAIL
-assert result.verdicts[0].status is Status.PASS
-assert result.verdicts[1].evidence.summary == "1 function(s) lack a return annotation"
-assert result.verdicts[1].evidence.data["functions"] == ("fizzbuzz",)
-assert result.skipped == ()
-
-# It does not parse, so stage 2 is never attempted.
-broken = stack.run("def fizzbuzz(:\n")
-
-assert broken.status is Status.FAIL
-assert len(broken.verdicts) == 1
-assert broken.skipped[0].name == "return_annotations"
+assert result.verdicts[0].evidence.data["functions"] == ("fizzbuzz",)
 
 
 # A verifier that breaks is an ERROR, never a FAIL.
@@ -250,7 +315,8 @@ assert "FileNotFoundError" in crashed.verdicts[0].error.traceback
 
 Note what a verifier does *not* do: it does not time itself (the stack stamps
 `duration_s`), and it does not catch its own breakage to report a `FAIL` (the stack turns
-exceptions into `ERROR`).
+exceptions into `ERROR`). If it can detect its own breakage cleanly, it returns
+`error_verdict(...)` instead of raising.
 
 ## API as it stands today
 
@@ -283,6 +349,10 @@ From `decidable.verifiers`:
 | `Verifier` | protocol: `name`, `stage`, `verify(artifact) -> Verdict` |
 | `VerifierStack` | ordered composition, short-circuits on the first non-pass |
 | `StackResult` | the verdicts produced and the verifiers skipped |
+| `error_verdict` | build an `ERROR` verdict for breakage you detected yourself |
+
+From `decidable.verifiers.python`: `ParseVerifier`, `MypyVerifier`, `RuffVerifier`,
+`ExecuteVerifier`, `PytestVerifier` — see [the table above](#the-python-verifiers).
 
 All models are frozen and reject unknown fields. The package is typed (`py.typed`) and
 checked with `mypy --strict`.
@@ -312,19 +382,23 @@ It is also Python-only in v0.1, by choice rather than by accident.
 
 ## Safety
 
-Today the library executes nothing: there are no execution verifiers yet, and a verifier
-you write runs in your own process.
+`ExecuteVerifier` and `PytestVerifier` **run the artifact**. They run it as a subprocess of
+the current interpreter, in a temporary directory, under a timeout, with a lightly
+sanitised environment.
 
-When milestone 2 lands, dynamic and behavioural verification will use subprocess isolation
-with timeouts and resource limits. That is **not a security boundary**. It guards against
-runaway loops and accidental mess, not against hostile code. Do not point it at artifacts
-you would not run yourself.
+That is **not a security boundary**, and nothing here pretends otherwise. It contains a
+crash and stops a runaway loop. It does not contain code that wants to read your files,
+open a socket, or spend your money. There are no resource limits and no sandbox: the
+artifact runs with your permissions. Do not point this at artifacts you would not be
+willing to run yourself.
+
+The static verifiers (`mypy`, `ruff`) and `ParseVerifier` never execute the artifact.
 
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks a
-pull request must pass, and what makes a good verifier. Milestone 2's Python verifier
-stack is the most useful place to start.
+pull request must pass, and what makes a good verifier. Milestone 3, the runner with
+caching and reproducibility metadata, is the most useful place to start.
 
 ## License
 

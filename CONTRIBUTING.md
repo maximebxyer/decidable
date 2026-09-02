@@ -12,8 +12,11 @@ Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 ```
 git clone https://github.com/maximebxyer/decidable
 cd decidable
-uv sync
+uv sync --extra python
 ```
+
+The `python` extra brings in `mypy`, `ruff` and `pytest` as tools the shipped verifiers
+shell out to. You want it: without it, the Python verifier tests all return `ERROR`.
 
 ## The checks
 
@@ -109,24 +112,29 @@ These come from the spec, and they are the reason to say no to otherwise good co
 ## Where help is most useful
 
 Milestones land in order, so the useful work is at the front of the queue. See the status
-table in the [README](README.md#status).
+table in the [README](README.md#status). Milestones 1 and 2 are done.
 
-**Milestone 2 — the Python verifier stack** is the natural first contribution, and it
-splits into four independent pieces, each testable on its own:
+**Milestone 3 — the runner** is next: execute a suite of tasks against an agent,
+producing a `Report`. Two things make it more than a for-loop, and both are worth
+discussing in an issue before building:
 
-| Stage | Verifier | Notes |
-|-------|----------|-------|
-| `SYNTACTIC` | `ast.parse` | source position into `Evidence.data` |
-| `STATIC` | `mypy`, `ruff` | error codes into `Evidence.data` so they aggregate |
-| `DYNAMIC` | subprocess execution with a timeout | not a security boundary; say so |
-| `BEHAVIOURAL` | `pytest` property tests | failing assertion into `Evidence.detail` |
+- **Caching.** Same suite, same artifacts, same verdicts. The cache key has to cover the
+  artifact *and* everything about the verifier that could change its answer — a verdict
+  restored from cache after a `mypy` upgrade would be a lie.
+- **Reproducibility metadata.** `RunMetadata` is deliberately thin today. Milestone 3 is
+  when seeds, timeouts and tool versions become real and get recorded.
 
-Each of these is a self-contained pull request. Taking one and doing it well is more
-useful than taking all four.
+There is also an open design question the runner forces: `Task` is pure data and holds no
+verifiers, so something has to pair each task with its `VerifierStack`. Whatever shape
+that takes is a new public name, so it deserves an argument.
 
-After that: the runner with caching and reproducibility metadata (3), the report with its
-failure breakdown by stage (4), then the CLI and YAML suite format (5). Milestone 5 comes
-last on purpose — a good library with no CLI is useful, a CLI over a weak core is not.
+After that: the report with its failure breakdown by stage (4), then the CLI and YAML
+suite format (5), then the worked example (6). Milestone 5 comes late on purpose — a good
+library with no CLI is useful, a CLI over a weak core is not.
+
+Smaller contributions that need no coordination: more Python verifiers (a `pyright`
+alternative to `mypy`, a docstring or complexity check), and better evidence from the
+existing ones.
 
 ## Questions
 
