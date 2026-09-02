@@ -33,10 +33,17 @@ class Verifier(Protocol):
     Whatever a verifier needs in order to decide — expected output, a fixture
     path, a property test — is supplied when the verifier is constructed, which
     is what keeps :meth:`verify` a function of the artifact alone.
+
+    ``fingerprint`` must change whenever the verifier's answer could: a tool
+    version, a strictness setting, the property tests themselves. It is what a
+    cache is keyed on and what a report records, so a verifier that returns a
+    constant fingerprint while its behaviour varies will produce stale verdicts
+    and a report that cannot be re-derived.
     """
 
     name: str
     stage: Stage
+    fingerprint: str
 
     def verify(self, artifact: Artifact, /) -> Verdict: ...
 
@@ -120,7 +127,9 @@ def error_verdict(
 
 
 def _ref(verifier: Verifier) -> VerifierRef:
-    return VerifierRef(name=verifier.name, stage=verifier.stage)
+    return VerifierRef(
+        name=verifier.name, stage=verifier.stage, fingerprint=verifier.fingerprint
+    )
 
 
 def _run_one(verifier: Verifier, artifact: Artifact) -> Verdict:

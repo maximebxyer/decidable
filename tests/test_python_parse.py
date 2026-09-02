@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from decidable.models import Stage, Status, VerifierRef
+from decidable.models import Stage, Status
 from decidable.verifiers.python import ParseVerifier
-
-PARSE = VerifierRef(name="python_parse", stage=Stage.SYNTACTIC)
 
 
 def test_valid_source_passes() -> None:
@@ -14,7 +12,10 @@ def test_valid_source_passes() -> None:
     )
 
     assert verdict.status is Status.PASS
-    assert verdict.verifier == PARSE
+    assert (verdict.verifier.name, verdict.verifier.stage) == (
+        "python_parse",
+        Stage.SYNTACTIC,
+    )
     assert verdict.evidence.summary == "parses as Python"
     assert verdict.evidence.data["python_version"]
 

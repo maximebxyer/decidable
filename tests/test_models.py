@@ -21,8 +21,8 @@ from decidable.models import (
     roll_up,
 )
 
-PARSE = VerifierRef(name="ast_parse", stage=Stage.SYNTACTIC)
-TYPES = VerifierRef(name="mypy", stage=Stage.STATIC)
+PARSE = VerifierRef(name="ast_parse", stage=Stage.SYNTACTIC, fingerprint="ast/3.12")
+TYPES = VerifierRef(name="mypy", stage=Stage.STATIC, fingerprint="mypy/1.11/strict")
 
 BROKEN = HarnessError(
     exception_type="FileNotFoundError",
@@ -154,6 +154,7 @@ def test_report_round_trips_through_json() -> None:
             decidable_version="0.1.0",
             python_version="3.12.0",
             platform="win32",
+            suite_name="fizzbuzz",
             agent_name="echo",
             started_at=datetime(2026, 9, 2, 12, 0, tzinfo=UTC),
             finished_at=datetime(2026, 9, 2, 12, 0, 1, tzinfo=UTC),

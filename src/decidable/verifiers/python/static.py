@@ -47,10 +47,16 @@ class MypyVerifier:
     def __init__(self, *, strict: bool = True, timeout_s: float = 120.0) -> None:
         self.strict = strict
         self.timeout_s = timeout_s
+        # Resolved once: the version is both what verdicts report and part of
+        # what makes a cached verdict from an older mypy invalid.
+        self._version = _tool_version("mypy")
+        self.fingerprint = (
+            f"mypy/{_label(self._version)}/strict={strict}/timeout={timeout_s}"
+        )
 
     def verify(self, artifact: Artifact, /) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
-        tool_version = _tool_version("mypy")
+        me = VerifierRef(name=self.name, stage=self.stage, fingerprint=self.fingerprint)
+        tool_version = self._version
         if isinstance(tool_version, PackageNotFoundError):
             return _missing_tool(me, "mypy", tool_version)
 
@@ -111,10 +117,12 @@ class RuffVerifier:
 
     def __init__(self, *, timeout_s: float = 60.0) -> None:
         self.timeout_s = timeout_s
+        self._version = _tool_version("ruff")
+        self.fingerprint = f"ruff/{_label(self._version)}/timeout={timeout_s}"
 
     def verify(self, artifact: Artifact, /) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
-        tool_version = _tool_version("ruff")
+        me = VerifierRef(name=self.name, stage=self.stage, fingerprint=self.fingerprint)
+        tool_version = self._version
         if isinstance(tool_version, PackageNotFoundError):
             return _missing_tool(me, "ruff", tool_version)
 
@@ -163,11 +171,19 @@ class RuffVerifier:
 
 
 def _tool_version(distribution: str) -> str | PackageNotFoundError:
-    """The installed version, or the exception explaining why there isn't one."""
+    """The installed version, or the exception explaining why there isn't one.
+
+    Resolved at construction so a missing tool never crashes on import, only
+    ever produces an honest ERROR verdict when the verifier is asked to decide.
+    """
     try:
         return version(distribution)
     except PackageNotFoundError as exc:
         return exc
+
+
+def _label(tool_version: str | PackageNotFoundError) -> str:
+    return "absent" if isinstance(tool_version, PackageNotFoundError) else tool_version
 
 
 def _missing_tool(me: VerifierRef, tool: str, exc: PackageNotFoundError) -> Verdict:

@@ -18,6 +18,11 @@ from decidable.verifiers.base import VerifierStack
 ARTIFACT = "def fizzbuzz(n: int) -> str: ...\n"
 
 
+def ref(name: str, stage: Stage) -> VerifierRef:
+    """The ref a FakeVerifier of this name and stage attributes its verdicts to."""
+    return VerifierRef(name=name, stage=stage, fingerprint=f"fake/{name}")
+
+
 class FakeVerifier:
     """Records its invocation and returns a scripted verdict.
 
@@ -37,6 +42,7 @@ class FakeVerifier:
     ) -> None:
         self.name = name
         self.stage = stage
+        self.fingerprint = f"fake/{name}"
         self.seen: list[Artifact] = []
         self._status = status
         self._calls = [] if calls is None else calls
@@ -59,8 +65,7 @@ class FakeVerifier:
         )
         return Verdict(
             status=self._status,
-            verifier=self._attributed_to
-            or VerifierRef(name=self.name, stage=self.stage),
+            verifier=self._attributed_to or ref(self.name, self.stage),
             evidence=Evidence(summary=f"{self.name}: {self._status.value}"),
             error=error,
         )
@@ -109,8 +114,8 @@ def test_fail_short_circuits_and_records_what_was_skipped() -> None:
     assert calls == ["parse", "mypy"]
     assert [v.status for v in result.verdicts] == [Status.PASS, Status.FAIL]
     assert result.skipped == (
-        VerifierRef(name="execute", stage=Stage.DYNAMIC),
-        VerifierRef(name="pytest", stage=Stage.BEHAVIOURAL),
+        ref("execute", Stage.DYNAMIC),
+        ref("pytest", Stage.BEHAVIOURAL),
     )
     assert result.status is Status.FAIL
 
@@ -130,7 +135,7 @@ def test_error_short_circuits_and_stays_an_error() -> None:
 
     assert calls == ["parse", "mypy"]
     assert result.status is Status.ERROR
-    assert result.skipped == (VerifierRef(name="pytest", stage=Stage.BEHAVIOURAL),)
+    assert result.skipped == (ref("pytest", Stage.BEHAVIOURAL),)
 
 
 def test_a_crashing_verifier_yields_error_never_fail() -> None:
@@ -152,7 +157,7 @@ def test_a_crashing_verifier_yields_error_never_fail() -> None:
     assert calls == ["mypy"]
     (crashed,) = result.verdicts
     assert crashed.status is Status.ERROR
-    assert crashed.verifier == VerifierRef(name="mypy", stage=Stage.STATIC)
+    assert crashed.verifier == ref("mypy", Stage.STATIC)
     assert crashed.evidence.summary == "mypy raised FileNotFoundError"
 
     assert crashed.error is not None
@@ -213,7 +218,7 @@ def test_a_misattributed_verdict_is_refused() -> None:
     liar = FakeVerifier(
         "mypy",
         Stage.STATIC,
-        attributed_to=VerifierRef(name="parse", stage=Stage.SYNTACTIC),
+        attributed_to=ref("parse", Stage.SYNTACTIC),
     )
 
     with pytest.raises(ValueError, match="misattributed"):

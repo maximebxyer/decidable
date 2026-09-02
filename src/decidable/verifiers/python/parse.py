@@ -21,8 +21,13 @@ class ParseVerifier:
     name = "python_parse"
     stage = Stage.SYNTACTIC
 
+    def __init__(self) -> None:
+        # The grammar decides what parses, so the interpreter version is the
+        # whole of this verifier's configuration.
+        self.fingerprint = f"python_parse/ast/{platform.python_version()}"
+
     def verify(self, artifact: Artifact, /) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
+        me = VerifierRef(name=self.name, stage=self.stage, fingerprint=self.fingerprint)
         try:
             ast.parse(artifact, filename=FILENAME)
         except SyntaxError as exc:

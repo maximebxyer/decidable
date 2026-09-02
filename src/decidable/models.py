@@ -90,10 +90,17 @@ class HarnessError(_Frozen):
 
 
 class VerifierRef(_Frozen):
-    """A verifier's identity, carried into reports without holding the object."""
+    """A verifier's identity, carried into reports without holding the object.
+
+    ``fingerprint`` records *which configuration* decided, not merely which
+    verifier: the tool version, the settings, the property tests. A report whose
+    verdicts do not say that cannot be re-derived, and a cache keyed without it
+    would happily serve a verdict from a different mypy.
+    """
 
     name: str
     stage: Stage
+    fingerprint: str
 
 
 class Verdict(_Frozen):
@@ -151,6 +158,27 @@ class Task(_Frozen):
     fixtures: tuple[Path, ...] = ()
 
 
+class Suite(_Frozen):
+    """A set of tasks.
+
+    Verifiers are not held here. The caller running a suite supplies a factory
+    that builds a stack for each task, which is what lets property tests differ
+    per task while keeping a suite pure data.
+    """
+
+    name: str
+    tasks: tuple[Task, ...]
+
+    @model_validator(mode="after")
+    def _task_ids_are_unique(self) -> Self:
+        ids = [task.id for task in self.tasks]
+        duplicates = sorted({id_ for id_ in ids if ids.count(id_) > 1})
+        if duplicates:
+            msg = f"task ids must be unique; repeated: {', '.join(duplicates)}"
+            raise ValueError(msg)
+        return self
+
+
 class Agent(Protocol):
     """Anything callable that maps a task to an artifact. User-supplied.
 
@@ -165,15 +193,28 @@ class TaskResult(_Frozen):
     """One task's verdicts, plus the verifiers that short-circuiting never reached."""
 
     task_id: str
-    artifact_digest: str
-    """sha256 of the artifact, so a result can be tied back to what produced it."""
+    artifact_digest: str | None = None
+    """sha256 of the artifact. ``None`` only when the agent produced none."""
 
-    verdicts: tuple[Verdict, ...]
+    verdicts: tuple[Verdict, ...] = ()
     skipped: tuple[VerifierRef, ...] = ()
+    error: HarnessError | None = None
+    """Set when the *agent* failed, so there was never an artifact to verify."""
 
     @property
     def status(self) -> Status:
+        """``ERROR`` when the agent failed: ``roll_up`` of no verdicts decides nothing."""
         return roll_up(self.verdicts)
+
+    @model_validator(mode="after")
+    def _an_agent_failure_has_no_artifact(self) -> Self:
+        if self.error is not None and (self.verdicts or self.artifact_digest):
+            msg = "an agent failure means no artifact was produced, so nothing was verified"
+            raise ValueError(msg)
+        if self.error is None and self.artifact_digest is None:
+            msg = "a result without an agent failure must record its artifact digest"
+            raise ValueError(msg)
+        return self
 
 
 class RunMetadata(_Frozen):
@@ -182,9 +223,12 @@ class RunMetadata(_Frozen):
     decidable_version: str
     python_version: str
     platform: str
+    suite_name: str
     agent_name: str
     started_at: datetime
     finished_at: datetime
+    cache_dir: str | None = None
+    cache_hits: int = 0
 
 
 class Report(_Frozen):

@@ -6,11 +6,8 @@ from importlib.metadata import PackageNotFoundError
 
 import pytest
 
-from decidable.models import Stage, Status, VerifierRef
+from decidable.models import Stage, Status
 from decidable.verifiers.python import MypyVerifier, RuffVerifier
-
-MYPY = VerifierRef(name="mypy", stage=Stage.STATIC)
-RUFF = VerifierRef(name="ruff", stage=Stage.STATIC)
 
 CLEAN = 'def fizzbuzz(n: int) -> str:\n    return "fizz" if n % 3 == 0 else str(n)\n'
 WRONG_RETURN_TYPE = "def fizzbuzz(n: int) -> str:\n    return n\n"
@@ -21,7 +18,7 @@ def test_mypy_passes_clean_source() -> None:
     verdict = MypyVerifier().verify(CLEAN)
 
     assert verdict.status is Status.PASS
-    assert verdict.verifier == MYPY
+    assert (verdict.verifier.name, verdict.verifier.stage) == ("mypy", Stage.STATIC)
     assert verdict.evidence.data["mypy_version"]
     assert verdict.evidence.data["strict"] is True
 
@@ -72,7 +69,7 @@ def test_ruff_passes_clean_source() -> None:
     verdict = RuffVerifier().verify(CLEAN)
 
     assert verdict.status is Status.PASS
-    assert verdict.verifier == RUFF
+    assert (verdict.verifier.name, verdict.verifier.stage) == ("ruff", Stage.STATIC)
     assert verdict.evidence.data["ruff_version"]
 
 

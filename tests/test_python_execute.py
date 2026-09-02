@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from decidable.models import Stage, Status, VerifierRef
+from decidable.models import Stage, Status
 from decidable.verifiers.python import ExecuteVerifier
-
-EXECUTE = VerifierRef(name="python_execute", stage=Stage.DYNAMIC)
 
 
 def test_a_clean_run_passes() -> None:
     verdict = ExecuteVerifier().verify("print('hello')\n")
 
     assert verdict.status is Status.PASS
-    assert verdict.verifier == EXECUTE
+    assert (verdict.verifier.name, verdict.verifier.stage) == (
+        "python_execute",
+        Stage.DYNAMIC,
+    )
     assert verdict.evidence.data["exit_code"] == 0
     assert verdict.evidence.detail == "hello"
 

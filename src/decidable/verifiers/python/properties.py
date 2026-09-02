@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
+from decidable._digest import digest
 from decidable.models import (
     Artifact,
     Evidence,
@@ -51,9 +52,17 @@ class PytestVerifier:
         self.tests = tests
         self.module_name = module_name
         self.timeout_s = timeout_s
+        self._version = _pytest_version()
+        # The tests are the configuration here, so they are hashed into the
+        # fingerprint: different property tests must never share a cache entry.
+        self.fingerprint = (
+            f"pytest/{self._version or 'absent'}"
+            f"/tests={digest(tests)[:16]}"
+            f"/module={module_name}/timeout={timeout_s}"
+        )
 
     def verify(self, artifact: Artifact, /) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
+        me = VerifierRef(name=self.name, stage=self.stage, fingerprint=self.fingerprint)
         try:
             tool_version = version("pytest")
         except PackageNotFoundError as exc:
@@ -133,6 +142,13 @@ class PytestVerifier:
             )
 
         return _cannot_decide(me, completed.exit_code, report, context)
+
+
+def _pytest_version() -> str | None:
+    try:
+        return version("pytest")
+    except PackageNotFoundError:
+        return None
 
 
 def _blames_artifact(report: str | None, module_name: str) -> bool:

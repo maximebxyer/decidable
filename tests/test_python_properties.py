@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from decidable.models import Stage, Status, VerifierRef
+from decidable.models import Stage, Status
 from decidable.verifiers.python import PytestVerifier
-
-PYTEST = VerifierRef(name="pytest", stage=Stage.BEHAVIOURAL)
 
 TESTS = """
 from solution import fizzbuzz
@@ -34,7 +32,10 @@ def test_passing_properties_pass() -> None:
     verdict = PytestVerifier(TESTS).verify(CORRECT)
 
     assert verdict.status is Status.PASS
-    assert verdict.verifier == PYTEST
+    assert (verdict.verifier.name, verdict.verifier.stage) == (
+        "pytest",
+        Stage.BEHAVIOURAL,
+    )
     assert verdict.evidence.data["pytest_version"]
     assert verdict.evidence.summary == "all property tests passed"
 

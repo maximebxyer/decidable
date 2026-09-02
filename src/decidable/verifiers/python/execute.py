@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import platform
+
 from decidable.models import Artifact, Evidence, Stage, Status, Verdict, VerifierRef
 from decidable.verifiers.python._process import (
     PYTHON,
@@ -31,9 +33,13 @@ class ExecuteVerifier:
 
     def __init__(self, *, timeout_s: float = 10.0) -> None:
         self.timeout_s = timeout_s
+        # The timeout is part of the configuration: it decides verdicts.
+        self.fingerprint = (
+            f"python_execute/{platform.python_version()}/timeout={timeout_s}"
+        )
 
     def verify(self, artifact: Artifact, /) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
+        me = VerifierRef(name=self.name, stage=self.stage, fingerprint=self.fingerprint)
         with workspace(artifact) as root:
             completed = run([PYTHON, "solution.py"], cwd=root, timeout_s=self.timeout_s)
 
