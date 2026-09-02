@@ -1,0 +1,49 @@
+# A worked suite for the README's one-command reproduction.
+#
+# Six tasks whose canned answers break at six different points, so the report
+# shows a real taxonomy rather than a column of passes. See README.md alongside
+# this file for what each answer gets wrong.
+
+name: python-codegen
+
+verifiers:
+  - parse
+  - mypy:
+      strict: true
+  - ruff
+  - execute:
+      timeout_s: 10
+  - pytest:
+      timeout_s: 30
+
+tasks:
+  - id: fizzbuzz
+    prompt: |
+      Write fizzbuzz(n: int) -> str returning "fizz" for multiples of 3,
+      "buzz" for multiples of 5, "fizzbuzz" for both, and str(n) otherwise.
+    tests: tests/fizzbuzz.py
+
+  - id: roman
+    prompt: |
+      Write roman(n: int) -> str converting 1..3999 to Roman numerals.
+    tests: tests/roman.py
+
+  - id: anagram
+    prompt: |
+      Write is_anagram(a: str, b: str) -> bool, ignoring case and spaces.
+    tests: tests/anagram.py
+
+  - id: primes
+    prompt: |
+      Write primes_below(n: int) -> list[int] returning primes under n.
+    tests: tests/primes.py
+
+  - id: balanced
+    prompt: |
+      Write is_balanced(text: str) -> bool checking (), [] and {} nesting.
+    tests: tests/balanced.py
+
+  - id: rle
+    prompt: |
+      Write encode(text: str) -> str doing run-length encoding: "aaab" -> "a3b1".
+    tests: tests/rle.py
