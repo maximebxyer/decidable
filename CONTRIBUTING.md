@@ -20,8 +20,9 @@ shell out to. You want it: without it, the Python verifier tests all return `ERR
 
 ## The checks
 
-All four must be clean before a pull request is ready. There is no CI yet, so please run
-them locally.
+All four must be clean before a pull request is ready. Run them locally — CI runs exactly
+these, on Python 3.11, 3.12 and 3.13, plus one Windows job, and finishes with the worked
+example.
 
 ```
 uv run ruff format --check .
@@ -129,7 +130,8 @@ genuinely open.
 - **Better evidence from the existing ones.** More in `Evidence.data` means more that can
   be aggregated across a suite. "This agent fails type-checking" is worth much less than
   "this agent returns the wrong type in 30% of tasks".
-- **A CI workflow.** There is none, and every check is currently run by hand.
+- **More example suites.** `examples/python_codegen/` is the only one, and a suite that
+  breaks agents in different ways would exercise the format harder.
 
 **Worth an issue first, because they change the shape of things:**
 

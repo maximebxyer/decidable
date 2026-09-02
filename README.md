@@ -4,6 +4,8 @@
 
 # decidable
 
+[![CI](https://github.com/maximebxyer/decidable/actions/workflows/ci.yml/badge.svg)](https://github.com/maximebxyer/decidable/actions/workflows/ci.yml)
+
 An evaluation harness for agents whose outputs can be **verified by execution**, not
 judged by another model.
 

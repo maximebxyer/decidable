@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to a branch makes the first run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: ${{ matrix.os }} / python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One failing combination should not hide the others.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          # The verifiers shell out to subprocesses, and process handling is
+          # where Windows differs. Worth one job rather than none.
+          - os: windows-latest
+            python-version: "3.12"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        # The python extra brings mypy, ruff and pytest as tools the shipped
+        # verifiers shell out to. Without it every Python verifier returns ERROR
+        # and the suite would pass while deciding nothing.
+        run: uv sync --extra python --python ${{ matrix.python-version }}
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Types
+        run: uv run mypy --strict
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Worked example
+        # The README claims this one command reproduces a taxonomy, and this is
+        # the only place the installed console script itself is exercised.
+        # Exit 1 is the correct outcome: five of the six tasks fail on purpose,
+        # so a 0 here would mean the example had stopped demonstrating anything.
+        run: |
+          uv run decidable run examples/python_codegen/suite.yaml \
+            --agent examples/python_codegen/agent.py:agent && code=0 || code=$?
+          if [ "$code" -ne 1 ]; then
+            echo "expected exit 1 from the example, got $code"
+            exit 1
+          fi
+        shell: bash
