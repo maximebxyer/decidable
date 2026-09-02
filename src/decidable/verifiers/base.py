@@ -96,6 +96,29 @@ class VerifierStack:
         return StackResult(verdicts=tuple(verdicts))
 
 
+def error_verdict(
+    ref: VerifierRef, exc: Exception, *, evidence: Evidence | None = None
+) -> Verdict:
+    """Build the ``ERROR`` verdict for a verifier that could not run.
+
+    The stack calls this for exceptions that escape :meth:`Verifier.verify`. A
+    verifier that can detect its own breakage cleanly — a tool that is not
+    installed, say — should call it directly rather than raise, passing
+    ``evidence`` that says something more useful than the exception type.
+    """
+    return Verdict(
+        status=Status.ERROR,
+        verifier=ref,
+        evidence=evidence
+        or Evidence(summary=f"{ref.name} raised {type(exc).__name__}"),
+        error=HarnessError(
+            exception_type=type(exc).__name__,
+            message=str(exc),
+            traceback="".join(traceback.format_exception(exc)),
+        ),
+    )
+
+
 def _ref(verifier: Verifier) -> VerifierRef:
     return VerifierRef(name=verifier.name, stage=verifier.stage)
 
@@ -109,7 +132,8 @@ def _run_one(verifier: Verifier, artifact: Artifact) -> Verdict:
         # A crashing verifier has told us nothing about the agent, so every
         # exception it can raise must become ERROR rather than escape and be
         # mistaken for FAIL further up. BaseException still propagates.
-        return _error_verdict(ref, exc, time.perf_counter() - started)
+        elapsed = time.perf_counter() - started
+        return error_verdict(ref, exc).model_copy(update={"duration_s": elapsed})
     duration_s = time.perf_counter() - started
     if verdict.verifier != ref:
         msg = (
@@ -119,17 +143,3 @@ def _run_one(verifier: Verifier, artifact: Artifact) -> Verdict:
         )
         raise ValueError(msg)
     return verdict.model_copy(update={"duration_s": duration_s})
-
-
-def _error_verdict(ref: VerifierRef, exc: Exception, duration_s: float) -> Verdict:
-    return Verdict(
-        status=Status.ERROR,
-        verifier=ref,
-        evidence=Evidence(summary=f"{ref.name} raised {type(exc).__name__}"),
-        error=HarnessError(
-            exception_type=type(exc).__name__,
-            message=str(exc),
-            traceback="".join(traceback.format_exception(exc)),
-        ),
-        duration_s=duration_s,
-    )
