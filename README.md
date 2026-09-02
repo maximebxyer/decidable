@@ -26,7 +26,7 @@ verifiably correct, and if not, exactly where did it break?*
 
 ## Status
 
-**v0.1, early.** Two of six milestones are built. This table is the honest picture, and
+**v0.1, early.** Four of six milestones are built. This table is the honest picture, and
 the README describes the design in full so contributors can see where the work is — not
 because the unbuilt parts exist.
 
@@ -34,16 +34,15 @@ because the unbuilt parts exist.
 |---|-----------|-------|
 | 1 | Core models and the Verifier protocol | **shipped** |
 | 2 | Python verifier stack (`ast.parse`, `mypy`/`ruff`, subprocess, `pytest`) | **shipped** |
-| 3 | Runner with caching and reproducibility metadata | not built |
-| 4 | Report with failure breakdown by stage | not built |
+| 3 | Runner with caching and reproducibility metadata | **shipped** |
+| 4 | Report with failure breakdown by stage | **shipped** |
 | 5 | CLI and YAML suite format | not built |
 | 6 | Worked example and one-command reproduction | not built |
 
-**There is no `decidable` CLI yet**, and nothing yet runs a suite against an agent or
-renders a report. What exists today is the library: the core types, the verifier stack,
-and [five working Python verifiers](#the-python-verifiers). Composing them and running
-them against an artifact by hand is a few lines, and the
-[Quickstart](#quickstart) below is executed by the test suite.
+The library is complete: define a suite, run it against an agent, get a report broken down
+by stage. **There is no `decidable` CLI yet** and no YAML suite format — you drive it from
+Python, as [Running a suite](#running-a-suite) shows. Every code block below is executed by
+the test suite.
 
 ## Core concepts
 
@@ -74,20 +73,40 @@ Verifiers are ordered cheap to expensive and short-circuit on the first non-pass
 | `BEHAVIOURAL` | does it satisfy property tests, invariants, expected outputs? | `pytest` |
 
 This ordering is the point: it turns a pass rate into a **failure taxonomy**. An agent
-that scores 60% is uninformative. The same agent described this way is not:
+that scores 20% is uninformative. The same run described by `render_terminal` is not:
 
 ```text
-120 tasks
-
-  syntactic     6 failed   ( 5%)   it did not parse
-  static       36 failed   (30%)   it parsed but did not type-check
-  dynamic       0 failed
-  behavioural   6 failed   ( 5%)   it ran but gave wrong answers
-  ------------------------------------------------
-  passed       72          (60%)
+python-codegen: 5 tasks against example-agent
+passed 1  failed 4  errored 0  (20% pass rate)
+                        by stage
+┌─────────────┬────────┬────────┬─────────┬─────────────┐
+│ stage       │ passed │ failed │ errored │ not reached │
+├─────────────┼────────┼────────┼─────────┼─────────────┤
+│ syntactic   │      4 │      1 │       0 │           0 │
+│ static      │      3 │      1 │       0 │           1 │
+│ dynamic     │      2 │      1 │       0 │           2 │
+│ behavioural │      1 │      1 │       0 │           3 │
+└─────────────┴────────┴────────┴─────────┴─────────────┘
+                            what did not pass
+┌──────────┬────────┬─────────────┬─────────────────────────────────────────┐
+│ task     │ status │ stage       │ why                                     │
+├──────────┼────────┼─────────────┼─────────────────────────────────────────┤
+│ roman    │ fail   │ syntactic   │ syntax error on line 1: invalid syntax  │
+│ anagram  │ fail   │ static      │ 1 type error: Incompatible return value │
+│          │        │             │ type (got "int", expected "str")        │
+│ primes   │ fail   │ behavioural │ property tests failed                   │
+│ balanced │ fail   │ dynamic     │ exited 1: ZeroDivisionError: integer    │
+│          │        │             │ division or modulo by zero              │
+└──────────┴────────┴─────────────┴─────────────────────────────────────────┘
 ```
 
-Both agents "score 60%". Only the second tells you what to fix.
+Both reports say "20%". Only the second says one agent emitted unparseable code and
+another wrote something that type-checks and runs but computes the wrong answer.
+
+The **not reached** column is what makes this honest: it distinguishes "type-checking
+failed" from "type-checking was never attempted because the code did not parse". Each row
+counts tasks rather than verdicts, so the rows are comparable even when a stage holds two
+verifiers.
 
 Because the ordering carries this meaning, `VerifierStack` refuses to be built out of
 order — a `BEHAVIOURAL` verifier cannot precede a `SYNTACTIC` one. Repeating a stage is
@@ -150,10 +169,10 @@ cd decidable
 uv sync --extra python
 ```
 
-The core library depends on `pydantic` and nothing else. The `python` extra adds `mypy`,
-`ruff` and `pytest` — the tools the shipped Python verifiers shell out to. Without it the
-core types and `VerifierStack` work fine, and a verifier whose tool is missing returns
-`ERROR` rather than crashing.
+The core library depends on `pydantic` and `rich`. The `python` extra adds `mypy`, `ruff`
+and `pytest` — the tools the shipped Python verifiers shell out to. Without it the core
+types, the runner and the report all work fine, and a verifier whose tool is missing
+returns `ERROR` rather than crashing.
 
 ## Quickstart
 
@@ -251,6 +270,74 @@ Two details worth knowing, both consequences of `ERROR` not being `FAIL`:
 `mypy` and `ruff` run against a generated empty config, so the configuration of whatever
 project `decidable` happens to be running inside can never change a verdict.
 
+## Running a suite
+
+A `Suite` is a set of tasks. An `Agent` is anything callable that turns a task into an
+artifact. `run` puts the two together and gives you a `Report`.
+
+Verifiers are not stored on a task — a task stays pure data — so you pass a factory that
+builds the stack for each task. That is what lets every task carry its own property tests.
+
+```python
+from decidable import Status, Suite, Task
+from decidable.report import render_terminal
+from decidable.runner import run
+from decidable.verifiers import VerifierStack
+from decidable.verifiers.python import ParseVerifier
+
+suite = Suite(
+    name="fizzbuzz",
+    tasks=(
+        Task(id="works", prompt="write fizzbuzz"),
+        Task(id="broken", prompt="write fizzbuzz"),
+    ),
+)
+
+
+def agent(task: Task) -> str:
+    """Stands in for a model. Yours would call one; the harness does not care."""
+    if task.id == "broken":
+        return "def fizzbuzz(:\n"
+    return "def fizzbuzz(n: int) -> str:\n    return str(n)\n"
+
+
+report = run(suite, agent, stack_for=lambda task: VerifierStack([ParseVerifier()]))
+
+assert [r.task_id for r in report.results] == ["works", "broken"]
+assert report.results[0].status is Status.PASS
+assert report.results[1].status is Status.FAIL
+assert report.metadata.suite_name == "fizzbuzz"
+
+render_terminal(report)
+```
+
+An agent that raises is recorded as an `ERROR` on that task and the rest of the suite still
+runs — it produced no artifact, so nothing about it was decided, and that is never counted
+as a failing agent.
+
+### Caching
+
+Pass `cache_dir` and a task whose artifact and verifiers match a previous run reuses that
+run's verdicts:
+
+```
+report = run(suite, agent, stack_for=..., cache_dir=Path(".decidable-cache"))
+```
+
+The key covers the artifact, the ordered `fingerprint` of every verifier in the stack, and
+the decidable version. That is what makes a hit honest: upgrade `mypy`, change
+`strict=True` to `False`, or edit a single property test, and the fingerprint changes and
+the work is redone. A corrupt or unreadable entry is treated as a miss — a cache is an
+optimisation, and one that can change a verdict is a bug.
+
+Caching is off unless you ask for it. Nothing is ever written to your working directory
+without a `cache_dir`.
+
+### The report
+
+`render_terminal(report)` prints the taxonomy; `render_json(report)` gives the same thing
+plus the raw results for a machine to read.
+
 ## Writing your own verifier
 
 Anything with `name`, `stage` and `verify` satisfies the protocol. Nothing here is
@@ -266,9 +353,12 @@ from decidable.verifiers import VerifierStack
 class AnnotatesReturnTypes:
     name = "return_annotations"
     stage = Stage.STATIC
+    # Must change whenever this verifier's answer could. Nothing configures
+    # this one, so a version is enough.
+    fingerprint = "return_annotations/1"
 
     def verify(self, artifact: str) -> Verdict:
-        me = VerifierRef(name=self.name, stage=self.stage)
+        me = VerifierRef(name=self.name, stage=self.stage, fingerprint=self.fingerprint)
         bare = tuple(
             node.name
             for node in ast.walk(ast.parse(artifact))
@@ -300,6 +390,7 @@ assert result.verdicts[0].evidence.data["functions"] == ("fizzbuzz",)
 class BrokenVerifier:
     name = "needs_a_tool_that_is_missing"
     stage = Stage.STATIC
+    fingerprint = "broken/1"
 
     def verify(self, artifact: str) -> Verdict:
         raise FileNotFoundError("mypy: command not found")
@@ -328,19 +419,32 @@ From `decidable`:
 | Name | What it is |
 |------|-----------|
 | `Task` | id, prompt, optional context and fixtures |
+| `Suite` | a name and a set of tasks with unique ids |
 | `Agent` | protocol: `__call__(task) -> Artifact` |
 | `Verdict` | status, verifier, evidence, optional `HarnessError`, `duration_s` |
 | `Status` | `PASS` / `FAIL` / `ERROR` |
 | `Stage` | `SYNTACTIC` / `STATIC` / `DYNAMIC` / `BEHAVIOURAL`, with `.rank` |
 | `Evidence` | `summary`, `detail`, `data` |
 | `HarnessError` | exception type, message, traceback |
-| `VerifierRef` | a verifier's name and stage, for reports |
+| `VerifierRef` | a verifier's name, stage and fingerprint, for reports |
 | `TaskResult` | one task's verdicts, its skipped verifiers, the artifact digest |
-| `RunMetadata` | versions, platform, agent name, timestamps |
+| `RunMetadata` | versions, platform, suite and agent name, timestamps, cache stats |
 | `Report` | metadata plus task results |
 | `roll_up` | reduce verdicts to one status, `ERROR` dominating |
 | `Artifact` | type alias, currently `str` |
 | `EvidenceValue` | what `Evidence.data` values may be |
+
+From `decidable.runner`: `run(suite, agent, stack_for=..., cache_dir=...) -> Report`.
+
+From `decidable.report`:
+
+| Name | What it is |
+|------|-----------|
+| `summarise` | a run's headline counts, agent errors kept separate |
+| `breakdown` | per-stage task counts, including what was never reached |
+| `render_terminal` | the tables shown above |
+| `render_json` | metadata, summary, breakdown and results as JSON |
+| `RunSummary`, `StageBreakdown` | what those two return |
 
 From `decidable.verifiers`:
 
@@ -357,9 +461,9 @@ From `decidable.verifiers.python`: `ParseVerifier`, `MypyVerifier`, `RuffVerifie
 All models are frozen and reject unknown fields. The package is typed (`py.typed`) and
 checked with `mypy --strict`.
 
-`Report` exists as a model but nothing renders it yet — that is milestone 4. Likewise
-`RunMetadata` is deliberately minimal until milestone 3 has real seeds, timeouts and
-environment to record.
+Timeouts are recorded in each verifier's `fingerprint` rather than in `RunMetadata`,
+because a stack can differ per task and there is no single run-level answer. There are no
+seeds to record: nothing in v0.1 is random.
 
 ## Design principles
 
@@ -397,8 +501,8 @@ The static verifiers (`mypy`, `ruff`) and `ParseVerifier` never execute the arti
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks a
-pull request must pass, and what makes a good verifier. Milestone 3, the runner with
-caching and reproducibility metadata, is the most useful place to start.
+pull request must pass, and what makes a good verifier. Milestone 5, the CLI and the YAML
+suite format, is the most useful place to start.
 
 ## License
 

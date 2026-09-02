@@ -53,6 +53,7 @@ A verifier is a pure function from artifact to verdict. The protocol lives in
 class Verifier(Protocol):
     name: str
     stage: Stage
+    fingerprint: str
 
     def verify(self, artifact: Artifact, /) -> Verdict: ...
 ```
@@ -64,6 +65,12 @@ The contract, in full:
   works.
 - **Set `name` and `stage`.** Pick the cheapest stage that honestly describes the check.
   The stage is what the failure taxonomy is built on.
+- **Set a `fingerprint` that changes whenever your answer could.** Fold in your tool's
+  version and every setting that affects a verdict; hash anything large, as
+  `PytestVerifier` does with its property tests. This is what the cache is keyed on and
+  what the report records, so a verifier whose fingerprint is constant while its behaviour
+  varies will serve stale verdicts and produce a report nobody can re-derive. It is the
+  easiest thing on this list to get quietly wrong.
 - **Attribute the verdict to yourself.** Build a `VerifierRef(name=self.name,
   stage=self.stage)` and put it on every verdict you return. The stack raises if a verdict
   comes back attributed to a different verifier — a misattributed verdict silently
@@ -112,29 +119,29 @@ These come from the spec, and they are the reason to say no to otherwise good co
 ## Where help is most useful
 
 Milestones land in order, so the useful work is at the front of the queue. See the status
-table in the [README](README.md#status). Milestones 1 and 2 are done.
+table in the [README](README.md#status). Milestones 1 to 4 are done, so the library is
+complete and only the interface is missing.
 
-**Milestone 3 — the runner** is next: execute a suite of tasks against an agent,
-producing a `Report`. Two things make it more than a for-loop, and both are worth
-discussing in an issue before building:
+**Milestone 5 — the CLI and YAML suite format** is next, and it is the one place the spec
+warns about most. A YAML suite has to name its verifiers, and naming them means a registry
+— the closest thing to a plugin system this project will have. CLAUDE.md says not to build
+one until a real use case demands it, and this is that use case, so the shape is worth
+arguing about in an issue before any of it is written. Keep in mind that a verifier is
+constructed with everything it needs to decide, so a registry has to carry constructor
+arguments, not just names.
 
-- **Caching.** Same suite, same artifacts, same verdicts. The cache key has to cover the
-  artifact *and* everything about the verifier that could change its answer — a verdict
-  restored from cache after a `mypy` upgrade would be a lie.
-- **Reproducibility metadata.** `RunMetadata` is deliberately thin today. Milestone 3 is
-  when seeds, timeouts and tool versions become real and get recorded.
+The CLI itself is `typer`, one `decidable run` command, rendering through the existing
+`decidable.report` functions rather than growing its own.
 
-There is also an open design question the runner forces: `Task` is pure data and holds no
-verifiers, so something has to pair each task with its `VerifierStack`. Whatever shape
-that takes is a new public name, so it deserves an argument.
+**Milestone 6** is the worked example under `examples/python_codegen/` and a README that
+reproduces in one command.
 
-After that: the report with its failure breakdown by stage (4), then the CLI and YAML
-suite format (5), then the worked example (6). Milestone 5 comes late on purpose — a good
-library with no CLI is useful, a CLI over a weak core is not.
+Smaller contributions that need no coordination:
 
-Smaller contributions that need no coordination: more Python verifiers (a `pyright`
-alternative to `mypy`, a docstring or complexity check), and better evidence from the
-existing ones.
+- More Python verifiers — a `pyright` alternative to `MypyVerifier`, a complexity or
+  docstring check. Each is self-contained.
+- Better evidence from the existing ones: more in `Evidence.data`, so more aggregates.
+- A CI workflow. There is none, and every check is currently run by hand.
 
 ## Questions
 
