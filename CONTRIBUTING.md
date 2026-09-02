@@ -118,30 +118,33 @@ These come from the spec, and they are the reason to say no to otherwise good co
 
 ## Where help is most useful
 
-Milestones land in order, so the useful work is at the front of the queue. See the status
-table in the [README](README.md#status). Milestones 1 to 4 are done, so the library is
-complete and only the interface is missing.
+All six v0.1 milestones are done, so there is no queue to join — everything below is
+genuinely open.
 
-**Milestone 5 — the CLI and YAML suite format** is next, and it is the one place the spec
-warns about most. A YAML suite has to name its verifiers, and naming them means a registry
-— the closest thing to a plugin system this project will have. CLAUDE.md says not to build
-one until a real use case demands it, and this is that use case, so the shape is worth
-arguing about in an issue before any of it is written. Keep in mind that a verifier is
-constructed with everything it needs to decide, so a registry has to carry constructor
-arguments, not just names.
+**Self-contained, no discussion needed:**
 
-The CLI itself is `typer`, one `decidable run` command, rendering through the existing
-`decidable.report` functions rather than growing its own.
+- **More Python verifiers.** A `pyright` alternative to `MypyVerifier`, a complexity or
+  docstring check, an import-hygiene check. Follow the contract above; each one is its own
+  pull request.
+- **Better evidence from the existing ones.** More in `Evidence.data` means more that can
+  be aggregated across a suite. "This agent fails type-checking" is worth much less than
+  "this agent returns the wrong type in 30% of tasks".
+- **A CI workflow.** There is none, and every check is currently run by hand.
 
-**Milestone 6** is the worked example under `examples/python_codegen/` and a README that
-reproduces in one command.
+**Worth an issue first, because they change the shape of things:**
 
-Smaller contributions that need no coordination:
+- **Extension points for suite files.** `decidable.suite_file` deliberately knows only the
+  five built-in verifiers, so a YAML file cannot name user code. Entry points or dotted
+  paths would fix that, and would also be the plugin system CLAUDE.md says to defer until
+  someone needs it. If you need it, say so — that is the argument that unlocks it.
+- **Parallel execution.** The runner is sequential. CLAUDE.md permits a simple process
+  pool and nothing beyond it. Getting this right alongside caching is the interesting part.
+- **A second artifact kind.** `Artifact` is `str` today. SQL against a fixture database is
+  the obvious next domain, and the one that would tell us whether the four stages
+  generalise or are secretly Python-shaped.
 
-- More Python verifiers — a `pyright` alternative to `MypyVerifier`, a complexity or
-  docstring check. Each is self-contained.
-- Better evidence from the existing ones: more in `Evidence.data`, so more aggregates.
-- A CI workflow. There is none, and every check is currently run by hand.
+Anything that adds a model call to a verifier, a config layer, or a provider SDK will be
+declined — see the design rules above.
 
 ## Questions
 

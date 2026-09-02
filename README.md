@@ -26,9 +26,7 @@ verifiably correct, and if not, exactly where did it break?*
 
 ## Status
 
-**v0.1, early.** Four of six milestones are built. This table is the honest picture, and
-the README describes the design in full so contributors can see where the work is — not
-because the unbuilt parts exist.
+**v0.1.** All six milestones are built.
 
 | # | Milestone | State |
 |---|-----------|-------|
@@ -36,13 +34,27 @@ because the unbuilt parts exist.
 | 2 | Python verifier stack (`ast.parse`, `mypy`/`ruff`, subprocess, `pytest`) | **shipped** |
 | 3 | Runner with caching and reproducibility metadata | **shipped** |
 | 4 | Report with failure breakdown by stage | **shipped** |
-| 5 | CLI and YAML suite format | not built |
-| 6 | Worked example and one-command reproduction | not built |
+| 5 | CLI and YAML suite format | **shipped** |
+| 6 | Worked example and one-command reproduction | **shipped** |
 
-The library is complete: define a suite, run it against an agent, get a report broken down
-by stage. **There is no `decidable` CLI yet** and no YAML suite format — you drive it from
-Python, as [Running a suite](#running-a-suite) shows. Every code block below is executed by
-the test suite.
+It is v0.1 and small on purpose: Python artifacts only, five built-in verifiers, sequential
+execution, no hosted anything. Every code block below is executed by the test suite, and
+the numbers further down are the real output of the command in the next section.
+
+## Try it
+
+```
+git clone https://github.com/maximebxyer/decidable
+cd decidable
+uv sync --extra python
+uv run decidable run examples/python_codegen/suite.yaml \
+  --agent examples/python_codegen/agent.py:agent
+```
+
+That runs six Python code-generation tasks against a canned agent whose answers break at
+six different points, and prints the table below. It exits 1, because five of the six fail
+on purpose — a worked example where everything passes demonstrates nothing. See
+[examples/python_codegen/](examples/python_codegen/) for what each answer gets wrong.
 
 ## Core concepts
 
@@ -73,35 +85,41 @@ Verifiers are ordered cheap to expensive and short-circuit on the first non-pass
 | `BEHAVIOURAL` | does it satisfy property tests, invariants, expected outputs? | `pytest` |
 
 This ordering is the point: it turns a pass rate into a **failure taxonomy**. An agent
-that scores 20% is uninformative. The same run described by `render_terminal` is not:
+that scores 17% is uninformative. Here is the same run, as the command above prints it:
 
 ```text
-python-codegen: 5 tasks against example-agent
-passed 1  failed 4  errored 0  (20% pass rate)
-                        by stage
+python-codegen: 6 tasks against examples/python_codegen/agent.py:agent
+passed 1  failed 5  errored 0  (17% pass rate)
+                        by stage                         
 ┌─────────────┬────────┬────────┬─────────┬─────────────┐
 │ stage       │ passed │ failed │ errored │ not reached │
 ├─────────────┼────────┼────────┼─────────┼─────────────┤
-│ syntactic   │      4 │      1 │       0 │           0 │
-│ static      │      3 │      1 │       0 │           1 │
-│ dynamic     │      2 │      1 │       0 │           2 │
-│ behavioural │      1 │      1 │       0 │           3 │
+│ syntactic   │      5 │      1 │       0 │           0 │
+│ static      │      3 │      2 │       0 │           1 │
+│ dynamic     │      2 │      1 │       0 │           3 │
+│ behavioural │      1 │      1 │       0 │           4 │
 └─────────────┴────────┴────────┴─────────┴─────────────┘
-                            what did not pass
-┌──────────┬────────┬─────────────┬─────────────────────────────────────────┐
-│ task     │ status │ stage       │ why                                     │
-├──────────┼────────┼─────────────┼─────────────────────────────────────────┤
-│ roman    │ fail   │ syntactic   │ syntax error on line 1: invalid syntax  │
-│ anagram  │ fail   │ static      │ 1 type error: Incompatible return value │
-│          │        │             │ type (got "int", expected "str")        │
-│ primes   │ fail   │ behavioural │ property tests failed                   │
-│ balanced │ fail   │ dynamic     │ exited 1: ZeroDivisionError: integer    │
-│          │        │             │ division or modulo by zero              │
-└──────────┴────────┴─────────────┴─────────────────────────────────────────┘
+                              what did not pass                               
+┌──────────┬────────┬─────────────┬──────────────────────────────────────────┐
+│ task     │ status │ stage       │ why                                      │
+├──────────┼────────┼─────────────┼──────────────────────────────────────────┤
+│ roman    │ fail   │ syntactic   │ syntax error on line 2: '{' was never    │
+│          │        │             │ closed                                   │
+│ anagram  │ fail   │ static      │ 1 type error: Incompatible return value  │
+│          │        │             │ type (got "Literal[False] | str",        │
+│          │        │             │ expected "bool")                         │
+│ primes   │ fail   │ static      │ 1 lint violation: `os` imported but      │
+│          │        │             │ unused                                   │
+│ balanced │ fail   │ dynamic     │ exited 1: ZeroDivisionError: integer     │
+│          │        │             │ division or modulo by zero               │
+│ rle      │ fail   │ behavioural │ property tests failed                    │
+└──────────┴────────┴─────────────┴──────────────────────────────────────────┘
 ```
 
-Both reports say "20%". Only the second says one agent emitted unparseable code and
-another wrote something that type-checks and runs but computes the wrong answer.
+"17%" tells you nothing. This tells you one answer never parsed, one lies about its return
+type, one has an unused import, one divides by zero at import — and one, `rle`, passes
+every check short of running the tests and still returns the wrong answer. That last row
+is the case for this project: no judge model is needed, or wanted, to decide it.
 
 The **not reached** column is what makes this honest: it distinguishes "type-checking
 failed" from "type-checking was never attempted because the code did not parse". Each row
@@ -169,10 +187,64 @@ cd decidable
 uv sync --extra python
 ```
 
-The core library depends on `pydantic` and `rich`. The `python` extra adds `mypy`, `ruff`
-and `pytest` — the tools the shipped Python verifiers shell out to. Without it the core
-types, the runner and the report all work fine, and a verifier whose tool is missing
-returns `ERROR` rather than crashing.
+The core library depends on `pydantic`, `rich`, `typer` and `pyyaml`. The `python` extra
+adds `mypy`, `ruff` and `pytest` — the tools the shipped Python verifiers shell out to.
+Without it everything else still works, and a verifier whose tool is missing returns
+`ERROR` rather than crashing.
+
+## Suites and the CLI
+
+A suite is a YAML file: a name, the verifier stack, and the tasks.
+
+```yaml
+name: python-codegen
+
+verifiers:
+  - parse
+  - mypy:
+      strict: true
+  - ruff
+  - execute:
+      timeout_s: 10
+  - pytest
+
+tasks:
+  - id: fizzbuzz
+    prompt: |
+      Write fizzbuzz(n: int) -> str ...
+    tests: tests/fizzbuzz.py
+```
+
+A verifier entry is a bare name or a single-key mapping of name to options. Paths are
+relative to the suite file. `tests:` is required on every task when the stack includes
+`pytest`, and each task's tests are hashed into that verifier's fingerprint, so editing a
+test invalidates its cached verdict.
+
+**A suite file can name only the five built-in verifiers** — `parse`, `mypy`, `ruff`,
+`execute`, `pytest`. It cannot name your code, which means it cannot import or run any. For
+a verifier of your own, compose a `VerifierStack` in Python and call `run` directly, as
+[Running a suite](#running-a-suite) shows. Anything more than this — entry points, dotted
+paths — is a plugin system, and this project will grow one when someone actually needs it.
+
+```
+decidable run SUITE (--agent SPEC | --artifacts DIR)
+                    [--cache-dir DIR] [--json PATH] [--quiet]
+```
+
+`--agent` is `module:callable` or `path/to/file.py:callable`. `--artifacts` points at a
+directory of already-generated files named `<task id>.py`, for verifying output you
+produced some other way; a missing file is an `ERROR` on that task, never a `FAIL`.
+
+Exit codes carry the distinction into your shell, so CI can tell a worse agent from a
+broken harness without parsing anything:
+
+| Code | Meaning |
+|------|---------|
+| `0` | every task passed |
+| `1` | some task failed — the agent's output was wrong |
+| `2` | some task errored, or the suite could not be loaded |
+
+`ERROR` dominates `FAIL`, as it does everywhere else in the project.
 
 ## Quickstart
 
@@ -446,6 +518,9 @@ From `decidable.report`:
 | `render_json` | metadata, summary, breakdown and results as JSON |
 | `RunSummary`, `StageBreakdown` | what those two return |
 
+From `decidable.suite_file`: `load(path) -> LoadedSuite` (a `Suite` and its `stack_for`),
+`SuiteFileError`, and `BUILT_INS`.
+
 From `decidable.verifiers`:
 
 | Name | What it is |
@@ -501,8 +576,8 @@ The static verifiers (`mypy`, `ruff`) and `ParseVerifier` never execute the arti
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks a
-pull request must pass, and what makes a good verifier. Milestone 5, the CLI and the YAML
-suite format, is the most useful place to start.
+pull request must pass, and what makes a good verifier. More verifiers are the most useful
+place to start; each one is self-contained.
 
 ## License
 
