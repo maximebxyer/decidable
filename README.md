@@ -1,6 +1,5 @@
 <p align="center">
-  <!-- Replace docs/banner.svg with your own banner, or point this at another path. -->
-  <img src="docs/banner.svg" alt="decidable" width="100%">
+  <img src="docs/banner.png" alt="decidable" width="100%">
 </p>
 
 # decidable
