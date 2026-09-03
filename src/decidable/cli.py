@@ -93,7 +93,7 @@ def run(
     console = Console(stderr=True)
 
     if (agent is None) == (artifacts is None):
-        console.print("[red]Give exactly one of --agent or --artifacts.[/red]")
+        _complain(console, "Give exactly one of --agent or --artifacts.")
         raise typer.Exit(EXIT_ERRORED)
 
     try:
@@ -104,7 +104,7 @@ def run(
             else _import_agent(str(agent))
         )
     except SuiteFileError as exc:
-        console.print(f"[red]{exc}[/red]")
+        _complain(console, str(exc))
         raise typer.Exit(EXIT_ERRORED) from exc
 
     report = run_suite(
@@ -121,6 +121,18 @@ def run(
         json_path.write_text(render_json(report), encoding="utf-8")
 
     raise typer.Exit(exit_code(report))
+
+
+def _complain(console: Console, message: str) -> None:
+    """Print a diagnostic that survives being read by a machine.
+
+    ``soft_wrap`` keeps it on one line: wrapping a table for a human is right,
+    but breaking an error message in the middle means nobody can grep a CI log
+    for it. ``markup=False`` because these messages interpolate file paths and
+    YAML keys, and a path containing a bracket would otherwise be parsed as rich
+    markup and mangled.
+    """
+    console.print(message, style="red", markup=False, soft_wrap=True)
 
 
 def exit_code(report: Report) -> int:
